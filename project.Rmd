@@ -1,0 +1,111 @@
+---
+title: "Predicting quality of execution of physical activities"
+author: "Catherine Torres"
+date: "22 de junho de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+The goal of this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants for predicting the quality of execution of weight lifting. The participants were asked to perform the activity in five different fashions (variable "classe"): the Class A corresponds to the specified execution of the exercise, while the other 4 classes (B, C, D, and E) correspond to common mistakes.
+
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+## Load packages and datasets
+```{r, message=FALSE, warning=FALSE}
+if(!require(caret)){install.packages("caret")&library(caret)}else{library(caret)}
+if(!require(caretEnsemble)){install.packages("caretEnsemble")&library(caretEnsemble)}else{library(caretEnsemble)}
+if(!require(skimr)){install.packages("skimr")&library(skimr)}else{library(skimr)}
+
+training <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
+```
+
+The datasets contain some metadata that are not useful for predicting the quality of execution of physical activities. So these variables were removed:
+
+```{r, message=FALSE, warning=FALSE}
+id_var <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", 
+  "cvtd_timestamp", "new_window", "num_window")
+training = training[ ,-which(names(training) %in% id_var)]
+testing = testing[ ,-which(names(testing) %in% id_var)]
+```
+
+## Exploratory Analysis
+
+```{r explore, message=FALSE, warning=FALSE}
+skimmed <- skim_to_wide(training)
+str(training)
+```
+
+Note that a lot of variables contain many missing data (NA). Variables with more than 14000 NAs (approximately 70% of the data) were removed:
+
+```{r}
+# Missing data
+missing_predictors = skimmed$variable[which(as.numeric(skimmed$missing) > 14000)]
+training = training[,-which(names(training) %in% missing_predictors)]
+testing = testing[,-which(names(testing) %in% missing_predictors)]
+
+anyNA(training); anyNA(testing)
+```
+
+We also checked for variables with near zero variance, but no variable presented this condition, after the removal of NAs:
+
+```{r}
+nzv = nearZeroVar(training, saveMetrics = T)
+any(nzv$nzv == T)
+```
+
+A summary of the final variables in the training dataset is provided below:
+
+```{r}
+final_skimmed <- skimmed[which(skimmed$variable %in% names(training)), c(1:4, 6, 9:11, 13, 15:16)]
+kable(final_skimmed)
+```
+
+## Model Selection
+
+Two different machine learning algorithms were compared: Generalized Boosted Regression Model (GBM) and Random Forest (RF):
+
+```{r, message=FALSE, warning=FALSE}
+# Define the training control
+fitControl <- trainControl(method = "cv", number = 10,
+                           savePredictions = "final")
+
+# GBM
+set.seed(100)
+model_gbm = train(classe ~ ., data= training, method= "gbm", trControl = fitControl, verbose = FALSE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+# RF
+set.seed(100)
+model_rf = train(classe ~ ., data= training, method= "rf", trControl = fitControl)
+```
+
+```{r}
+# Compare model performances using resample()
+models_compare <- resamples(list(GBM= model_gbm, RF= model_rf))
+summary(models_compare)
+
+# Draw box plots to compare models
+scales <- list(x=list(relation="free"), y=list(relation="free"))
+bwplot(models_compare, scales=scales)
+```
+
+The model with the best performance (RF) was chose for predicting the quality of execution of physical activities on the testing data:
+
+```{r, message=FALSE, warning=FALSE}
+# Predicting on the testing data
+prediction_best <- predict(model_rf, testing)
+prediction_best
+
+```
+
